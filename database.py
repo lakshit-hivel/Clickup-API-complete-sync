@@ -358,3 +358,211 @@ def get_custom_field_name_from_id(custom_item_id, org_id, conn):
     finally:
         if cursor:
             cursor.close()
+
+def insert_list_custom_field_to_db(list_custom_field, conn):
+    """Insert or update a single list custom field"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check query to see if list custom field exists
+        check_query = """
+            SELECT jira_id FROM insightly_jira.account_custom_field 
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+            LIMIT 1
+        """
+
+        # Insert query
+        insert_query = """
+            INSERT INTO insightly_jira.account_custom_field (
+                jira_id, name, data_type, org_id
+            ) VALUES (
+                %(jira_id)s, %(name)s, %(data_type)s, %(org_id)s
+            )
+        """
+        
+        # Update query
+        update_query = """ 
+            UPDATE insightly_jira.account_custom_field SET
+                name = %(name)s,
+                data_type = %(data_type)s
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+        """
+        
+        # Check if list custom field exists
+        cursor.execute(check_query, list_custom_field)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing list custom field
+            cursor.execute(update_query, list_custom_field)
+        else:
+            # Insert new list custom field
+            cursor.execute(insert_query, list_custom_field)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting list custom field {list_custom_field.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def insert_folder_custom_field_to_db(folder_custom_field, conn):
+    """Insert or update a single folder custom field"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check query to see if folder custom field exists
+        check_query = """
+            SELECT jira_id FROM insightly_jira.account_custom_field 
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+            LIMIT 1
+        """
+        
+        # Insert query
+        insert_query = """
+            INSERT INTO insightly_jira.account_custom_field (
+                jira_id, name, data_type, org_id
+            ) VALUES (
+                %(jira_id)s, %(name)s, %(data_type)s, %(org_id)s
+            )
+        """
+        
+        # Update query
+        update_query = """
+            UPDATE insightly_jira.account_custom_field SET
+                name = %(name)s,
+                data_type = %(data_type)s
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+        """
+        
+        # Check if folder custom field exists
+        cursor.execute(check_query, folder_custom_field)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing folder custom field
+            cursor.execute(update_query, folder_custom_field)
+        else:
+            # Insert new folder custom field
+            cursor.execute(insert_query, folder_custom_field)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting folder custom field {folder_custom_field.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def insert_space_custom_field_to_db(space_custom_field, conn):
+    """Insert or update a single space custom field"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check query to see if space custom field exists
+        check_query = """
+            SELECT jira_id FROM insightly_jira.account_custom_field 
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+            LIMIT 1
+        """
+        
+        # Insert query
+        insert_query = """
+            INSERT INTO insightly_jira.account_custom_field (
+                jira_id, name, data_type, org_id
+            ) VALUES (
+                %(jira_id)s, %(name)s, %(data_type)s, %(org_id)s
+            )
+        """
+        
+        # Update query
+        update_query = """
+            UPDATE insightly_jira.account_custom_field SET
+                name = %(name)s,
+                data_type = %(data_type)s
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+        """
+        
+        # Check if space custom field exists
+        cursor.execute(check_query, space_custom_field)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing space custom field
+            cursor.execute(update_query, space_custom_field)
+        else:
+            # Insert new space custom field
+            cursor.execute(insert_query, space_custom_field)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting space custom field {space_custom_field.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def insert_workspace_custom_field_to_db(workspace_custom_field, conn):
+    """Insert or update a single workspace custom field"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check query to see if workspace custom field exists
+        check_query = """
+            SELECT jira_id FROM insightly_jira.account_custom_field 
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+            LIMIT 1
+        """
+        
+        # Insert query
+        insert_query = """
+            INSERT INTO insightly_jira.account_custom_field (
+                jira_id, name, data_type, org_id
+            ) VALUES (
+                %(jira_id)s, %(name)s, %(data_type)s, %(org_id)s
+            )
+        """
+        
+        # Update query
+        update_query = """
+            UPDATE insightly_jira.account_custom_field SET
+                name = %(name)s,
+                data_type = %(data_type)s
+            WHERE jira_id = %(jira_id)s AND org_id = %(org_id)s
+        """
+        
+        # Check if workspace custom field exists
+        cursor.execute(check_query, workspace_custom_field)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing workspace custom field
+            cursor.execute(update_query, workspace_custom_field)
+        else:
+            # Insert new workspace custom field
+            cursor.execute(insert_query, workspace_custom_field)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting workspace custom field {workspace_custom_field.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()

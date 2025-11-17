@@ -58,7 +58,8 @@ def get_custom_list_fields(list_id):
     response = requests.get(url, headers=get_clickup_headers())
     response.raise_for_status()
     data = response.json()
-    return data.get('list_custom_fields', [])
+    # ClickUp API returns 'fields' as the key
+    return data.get('fields', [])
 
 def get_folder_custom_fields(folder_id):
     """Fetch all folder custom fields from a folder"""
@@ -66,7 +67,8 @@ def get_folder_custom_fields(folder_id):
     response = requests.get(url, headers=get_clickup_headers())
     response.raise_for_status()
     data = response.json()
-    return data.get('folder_custom_fields', [])
+    # ClickUp API returns 'fields' as the key
+    return data.get('fields', [])
 
 def get_space_custom_fields(space_id):
     """Fetch all space custom fields from a space"""
@@ -74,13 +76,15 @@ def get_space_custom_fields(space_id):
     response = requests.get(url, headers=get_clickup_headers())
     response.raise_for_status()
     data = response.json()
-    return data.get('space_custom_fields', [])
+    # ClickUp API returns 'fields' as the key
+    return data.get('fields', [])
 
 def get_workspace_custom_fields():
     """Fetch all workspace custom fields from a workspace"""
-    url = f'{CLICKUP_API_BASE}/workspace/{TEAM_ID}/field'
+    url = f'{CLICKUP_API_BASE}/team/{TEAM_ID}/field'
     response = requests.get(url, headers=get_clickup_headers())
     response.raise_for_status()
     data = response.json()
-    return data.get('workspace_custom_fields', [])
+    # ClickUp API returns 'fields' as the key
+    return data.get('fields', [])
 

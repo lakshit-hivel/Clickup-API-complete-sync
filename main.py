@@ -2,9 +2,17 @@ import sys
 import traceback
 from datetime import datetime
 
-from clickup_api import get_clickup_spaces, get_folders, get_lists_from_folder, get_tasks_from_list, get_custom_task_types
-from database import insert_boards_to_db, insert_sprints_to_db, insert_issue_to_db, get_db_connection, insert_custom_field_to_db
-from mappers import map_folder_to_board, map_list_to_sprint, map_task_to_issue, map_custom_task_type_to_custom_field
+from clickup_api import (get_clickup_spaces, get_folders, get_lists_from_folder, get_tasks_from_list, 
+                          get_custom_task_types, get_workspace_custom_fields, get_space_custom_fields,
+                          get_folder_custom_fields, get_custom_list_fields)
+from database import (insert_boards_to_db, insert_sprints_to_db, insert_issue_to_db, get_db_connection, 
+                      insert_custom_field_to_db, insert_workspace_custom_field_to_db, 
+                      insert_space_custom_field_to_db, insert_folder_custom_field_to_db, 
+                      insert_list_custom_field_to_db)
+from mappers import (map_folder_to_board, map_list_to_sprint, map_task_to_issue, 
+                     map_custom_task_type_to_custom_field, map_workspace_custom_field_to_custom_field,
+                     map_space_custom_field_to_custom_field, map_folder_custom_field_to_custom_field,
+                     map_list_custom_field_to_custom_field)
 
 
 def sync_clickup_data():
@@ -22,6 +30,10 @@ def sync_clickup_data():
         list_to_sprint_id = {}   # Map ClickUp list_id to database sprint_id
         issues_count = 0  # Count of processed issues
         custom_fields_count = 0  # Count of processed custom fields
+        workspace_custom_fields_count = 0
+        space_custom_fields_count = 0
+        folder_custom_fields_count = 0
+        list_custom_fields_count = 0
         
         # Fetch and insert custom task types (custom fields) - independent operation
         print("\nFetching Custom Task Types (Custom Fields)...")
@@ -40,6 +52,23 @@ def sync_clickup_data():
             print(f"Warning: Failed to sync custom fields: {e}")
             print("Continuing with main sync...\n")
         
+        # Fetch and insert workspace-level custom fields
+        print("\nFetching Workspace Custom Fields...")
+        try:
+            workspace_custom_fields = get_workspace_custom_fields()
+            print(f"Found {len(workspace_custom_fields)} workspace custom fields")
+            
+            for workspace_custom_field in workspace_custom_fields:
+                workspace_field_data = map_workspace_custom_field_to_custom_field(workspace_custom_field)
+                print(f"  Inserting workspace custom field: {workspace_field_data.get('name')}")
+                insert_workspace_custom_field_to_db(workspace_field_data, conn)
+                workspace_custom_fields_count += 1
+            
+            print(f"✓ Successfully processed {workspace_custom_fields_count} workspace custom fields\n")
+        except Exception as e:
+            print(f"Warning: Failed to sync workspace custom fields: {e}")
+            print("Continuing with main sync...\n")
+        
         # Fetch spaces
         print("\nFetching and Inserting Data...")
         spaces = get_clickup_spaces()
@@ -50,6 +79,19 @@ def sync_clickup_data():
             space_id = space.get('id')
             space_name = space.get('name')
             print(f"\nProcessing space: {space_name}")
+            
+            # Fetch and insert space-level custom fields
+            try:
+                space_custom_fields = get_space_custom_fields(space_id)
+                print(f"  Found {len(space_custom_fields)} space custom fields")
+                
+                for space_custom_field in space_custom_fields:
+                    space_field_data = map_space_custom_field_to_custom_field(space_custom_field)
+                    print(f"    Inserting space custom field: {space_field_data.get('name')}")
+                    insert_space_custom_field_to_db(space_field_data, conn)
+                    space_custom_fields_count += 1
+            except Exception as e:
+                print(f"  Warning: Failed to sync space custom fields for space '{space_name}': {e}")
             
             # Fetch folders (boards)
             folders = get_folders(space_id)
@@ -64,6 +106,19 @@ def sync_clickup_data():
                 print(f"  Inserting board: {folder_name}")
                 board_id = insert_boards_to_db(board_data, conn)  # Pass connection
                 folder_to_board_id[folder_id] = board_id  # Store mapping
+                
+                # Fetch and insert folder-level custom fields
+                try:
+                    folder_custom_fields = get_folder_custom_fields(folder_id)
+                    print(f"    Found {len(folder_custom_fields)} folder custom fields")
+                    
+                    for folder_custom_field in folder_custom_fields:
+                        folder_field_data = map_folder_custom_field_to_custom_field(folder_custom_field)
+                        print(f"      Inserting folder custom field: {folder_field_data.get('name')}")
+                        insert_folder_custom_field_to_db(folder_field_data, conn)
+                        folder_custom_fields_count += 1
+                except Exception as e:
+                    print(f"    Warning: Failed to sync folder custom fields for folder '{folder_name}': {e}")
                 
                 # Fetch lists (sprints) for this folder
                 print(f"    Fetching sprints from folder: {folder_name}")
@@ -90,6 +145,19 @@ def sync_clickup_data():
                     list_to_sprint_id[list_id] = sprint_id  # Store mapping
                     print(f"      ✓ Sprint inserted with id: {sprint_id}")
                     
+                    # Fetch and insert list-level custom fields
+                    try:
+                        list_custom_fields = get_custom_list_fields(list_id)
+                        print(f"        Found {len(list_custom_fields)} list custom fields")
+                        
+                        for list_custom_field in list_custom_fields:
+                            list_field_data = map_list_custom_field_to_custom_field(list_custom_field)
+                            print(f"          Inserting list custom field: {list_field_data.get('name')}")
+                            insert_list_custom_field_to_db(list_field_data, conn)
+                            list_custom_fields_count += 1
+                    except Exception as e:
+                        print(f"        Warning: Failed to sync list custom fields for list '{list_name}': {e}")
+                    
                     # Fetch tasks (issues) for this list
                     print(f"        Fetching issues from sprint: {list_name}")
                     tasks = get_tasks_from_list(list_id)
@@ -105,7 +173,11 @@ def sync_clickup_data():
         print("\n" + "="*60)
         print("SYNC SUMMARY")
         print("="*60)
-        print(f"Total Custom Fields: {custom_fields_count}")
+        print(f"Total Custom Fields (Task Types): {custom_fields_count}")
+        print(f"Total Workspace Custom Fields: {workspace_custom_fields_count}")
+        print(f"Total Space Custom Fields: {space_custom_fields_count}")
+        print(f"Total Folder Custom Fields: {folder_custom_fields_count}")
+        print(f"Total List Custom Fields: {list_custom_fields_count}")
         print(f"Total Boards (Folders): {len(folder_to_board_id)}")
         print(f"Total Sprints (Lists): {len(list_to_sprint_id)}")
         print(f"Total Issues (Tasks): {issues_count}")
