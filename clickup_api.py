@@ -38,7 +38,7 @@ def get_lists_from_folder(folder_id):
 
 def get_tasks_from_list(list_id):
     """Fetch all tasks from a list"""
-    url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_closed=true'
+    url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_closed=true&page=3'
     response = requests.get(url, headers=get_clickup_headers())
     response.raise_for_status()
     data = response.json()

@@ -220,13 +220,13 @@ def insert_issue_to_db(issue, conn):
                 resolution_date, time_spent, parent_id, is_deleted,
                 assignee_id, creator_id, due_date, issue_id, key,
                 parent_issue_id, project_id, reporter_id, status,
-                summary, description, sprint_id, issue_url, org_id, current_progress, status_change_date, issue_type, parent_task_id
+                summary, description, sprint_id, issue_url, org_id, current_progress, status_change_date, issue_type, parent_task_id, story_point
             ) VALUES (
                 %(created_at)s, %(modifieddate)s, %(board_id)s, %(priority)s,
                 %(resolution_date)s, %(time_spent)s, %(parent_id)s, %(is_deleted)s,
                 %(assignee_id)s, %(creator_id)s, %(due_date)s, %(issue_id)s, %(key)s,
                 %(parent_issue_id)s, %(project_id)s, %(reporter_id)s, %(status)s,
-                %(summary)s, %(description)s, %(sprint_id)s, %(issue_url)s, %(org_id)s, %(current_progress)s, %(status_change_date)s, %(issue_type)s, %(parent_task_id)s
+                %(summary)s, %(description)s, %(sprint_id)s, %(issue_url)s, %(org_id)s, %(current_progress)s, %(status_change_date)s, %(issue_type)s, %(parent_task_id)s, %(story_point)s
             )
         """
         
@@ -255,7 +255,8 @@ def insert_issue_to_db(issue, conn):
                 current_progress = %(current_progress)s,
                 status_change_date = %(status_change_date)s,
                 issue_type = %(issue_type)s,
-                parent_task_id = %(parent_task_id)s
+                parent_task_id = %(parent_task_id)s,
+                story_point = %(story_point)s
             WHERE issue_id = %(issue_id)s AND org_id = %(org_id)s
         """
         
