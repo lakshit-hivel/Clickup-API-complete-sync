@@ -566,3 +566,80 @@ def insert_workspace_custom_field_to_db(workspace_custom_field, conn):
     finally:
         if cursor:
             cursor.close()
+
+def insert_user_to_db(user_data, conn):
+    """Insert or update a user with encrypted name and email"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check if user exists by comparing encrypted name
+        # We encrypt the input name and compare it with stored encrypted names
+        # Cast name column to bytea since aes_encrypt returns bytea
+        check_query = """
+            SELECT id FROM insightly.author 
+            WHERE name::bytea = aes_encrypt(%(name)s) 
+            AND organizationid = %(organizationid)s
+            AND scmprovider = %(scmprovider)s
+            LIMIT 1
+        """
+        
+        cursor.execute(check_query, user_data)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing user
+            update_query = """
+                UPDATE insightly.author SET
+                    type = %(type)s,
+                    email = aes_encrypt(%(email)s),
+                    active = %(active)s
+                WHERE name::bytea = aes_encrypt(%(name)s) 
+                AND organizationid = %(organizationid)s
+                AND scmprovider = %(scmprovider)s
+            """
+            cursor.execute(update_query, user_data)
+        else:
+            # Insert new user
+            insert_query = """
+                INSERT INTO insightly.author (
+                    type, name, email, organizationid, scmprovider, active
+                ) VALUES (
+                    %(type)s, aes_encrypt(%(name)s), aes_encrypt(%(email)s), %(organizationid)s, %(scmprovider)s, %(active)s
+                )
+            """
+            cursor.execute(insert_query, user_data)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting user {user_data.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def find_user_by_email(email, org_id, conn):
+    """Find a user by email (comparing encrypted values)"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        # Cast email column to bytea since aes_encrypt returns bytea
+        query = """
+            SELECT id FROM insightly.author 
+            WHERE email::bytea = aes_encrypt(%s) AND organizationid = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (email, org_id))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error finding user by email {email}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()

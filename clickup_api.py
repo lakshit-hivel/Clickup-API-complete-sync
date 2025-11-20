@@ -88,3 +88,12 @@ def get_workspace_custom_fields():
     # ClickUp API returns 'fields' as the key
     return data.get('fields', [])
 
+def get_users():
+    """Fetch all users from a workspace"""
+    url = f'{CLICKUP_API_BASE}/team'
+    response = requests.get(url, headers=get_clickup_headers())
+    response.raise_for_status()
+    data = response.json()
+    teams = data.get('teams', [])
+    for team in teams:
+        return team.get('members', [])

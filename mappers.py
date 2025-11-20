@@ -1,6 +1,6 @@
 from datetime import datetime
 from config import ORG_ID
-from database import get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id
+from database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id
 
 
 def map_folder_to_board(folder, space_id, now):
@@ -137,6 +137,26 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         if not issue_type:
             print(f"  Warning: Custom field not found for task '{task.get('name')}' (custom_item_id: {custom_item_id})")
     
+    # Get assignee ID (if assignees exist)
+    assigneeId = None
+    assignees = task.get('assignees', [])
+    if assignees and len(assignees) > 0:
+        assigneeEmail = assignees[0].get('email')
+        if assigneeEmail:
+            assigneeId = find_user_by_email(assigneeEmail, ORG_ID, conn)
+            if not assigneeId:
+                print(f"  Warning: Assignee not found for task '{task.get('name')}' (assigneeEmail: {assigneeEmail})")
+    
+    # Get creator ID (if creator exists)
+    creatorId = None
+    creator = task.get('creator')
+    if creator:
+        creatorEmail = creator.get('email')
+        if creatorEmail:
+            creatorId = find_user_by_email(creatorEmail, ORG_ID, conn)
+            if not creatorId:
+                print(f"  Warning: Creator not found for task '{task.get('name')}' (creatorEmail: {creatorEmail})")
+
     return {
         'created_at': created_at,
         'modifieddate': updated_at,
@@ -146,8 +166,8 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         'time_spent': task.get('time_estimate'),
         'parent_id': top_level_parent, #to be mapped with top_level_parent
         'is_deleted': task.get('archived', False),
-        'assignee_id': None,
-        'creator_id': None,
+        'assignee_id': assigneeId,
+        'creator_id': creatorId,
         'due_date': due_date,
         'issue_id': str(task_id),
         'key': task.get('custom_id'),
@@ -166,6 +186,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         'parent_task_id' : parent_id #parent
         
     }
+
 
 def map_custom_task_type_to_custom_field(custom_task_type):
     """Map ClickUp Custom Task Type to Custom Field table schema"""
@@ -210,4 +231,22 @@ def map_workspace_custom_field_to_custom_field(workspace_custom_field):
         'name': workspace_custom_field.get('name'),
         'data_type': workspace_custom_field.get('type'),
         'org_id': ORG_ID,
+    }
+
+
+def map_users_to_usertable(user):
+    """Map ClickUp User to User table schema"""
+    # Extract nested user object if it exists
+    user_data = user.get('user', user)
+    
+    # Use email as fallback if username is None
+    username = user_data.get('username') or user_data.get('email', 'Unknown')
+    
+    return {
+        'type': "USER",
+        'name': username,
+        'email': user_data.get('email'),
+        'organizationid': ORG_ID,
+        'scmprovider': "CLICKUP",
+        'active': True
     }
