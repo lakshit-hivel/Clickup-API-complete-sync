@@ -4,15 +4,15 @@ from datetime import datetime
 
 from clickup_api import (get_clickup_spaces, get_folders, get_lists_from_folder, get_tasks_from_list, 
                           get_custom_task_types, get_workspace_custom_fields, get_space_custom_fields,
-                          get_folder_custom_fields, get_custom_list_fields)
+                          get_folder_custom_fields, get_custom_list_fields, get_users)
 from database import (insert_boards_to_db, insert_sprints_to_db, insert_issue_to_db, get_db_connection, 
                       insert_custom_field_to_db, insert_workspace_custom_field_to_db, 
                       insert_space_custom_field_to_db, insert_folder_custom_field_to_db, 
-                      insert_list_custom_field_to_db)
+                      insert_list_custom_field_to_db, insert_user_to_db)
 from mappers import (map_folder_to_board, map_list_to_sprint, map_task_to_issue, 
                      map_custom_task_type_to_custom_field, map_workspace_custom_field_to_custom_field,
                      map_space_custom_field_to_custom_field, map_folder_custom_field_to_custom_field,
-                     map_list_custom_field_to_custom_field)
+                     map_list_custom_field_to_custom_field, map_users_to_usertable)
 
 
 def sync_clickup_data():
@@ -34,6 +34,28 @@ def sync_clickup_data():
         space_custom_fields_count = 0
         folder_custom_fields_count = 0
         list_custom_fields_count = 0
+        users_count = 0  # Count of processed users
+        
+        # Fetch and insert users - independent operation
+        print("\nFetching Users...")
+        try:
+            users = get_users()
+            print(f"Found {len(users)} users")
+            
+            # Process all users
+            for user in users:
+                user_data = map_users_to_usertable(user)
+                username = user_data.get('name')
+                print(f"  Inserting user: {username} (email encrypted)")
+                insert_user_to_db(user_data, conn)
+                users_count += 1
+            
+            print(f"✓ Successfully processed {users_count} users\n")
+        except Exception as e:
+            print(f"Warning: Failed to sync users: {e}")
+            import traceback
+            traceback.print_exc()
+            print("Continuing with main sync...\n")
         
         # Fetch and insert custom task types (custom fields) - independent operation
         print("\nFetching Custom Task Types (Custom Fields)...")
@@ -173,6 +195,7 @@ def sync_clickup_data():
         print("\n" + "="*60)
         print("SYNC SUMMARY")
         print("="*60)
+        print(f"Total Users: {users_count}")
         print(f"Total Custom Fields (Task Types): {custom_fields_count}")
         print(f"Total Workspace Custom Fields: {workspace_custom_fields_count}")
         print(f"Total Space Custom Fields: {space_custom_fields_count}")
