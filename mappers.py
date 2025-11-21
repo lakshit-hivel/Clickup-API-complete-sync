@@ -132,11 +132,19 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     # Get issue type from custom_item_id
     custom_item_id = task.get('custom_item_id')
     issue_type = None
-    if custom_item_id:
+    if custom_item_id and custom_item_id != 0:
         issue_type = get_custom_field_name_from_id(custom_item_id, ORG_ID, conn)
         if not issue_type:
             print(f"  Warning: Custom field not found for task '{task.get('name')}' (custom_item_id: {custom_item_id})")
+    else:
+        # If custom_item_id is 0 or None, default to "task"
+        issue_type = "task"
     
+    # Truncate task name (summary) to fit database varchar(255) limit
+    summary = task.get('name', '')
+    if summary and len(summary) > 255:
+        summary = summary[:252] + '...'  # Truncate to 252 chars + '...' = 255
+
     # Get assignee ID (if assignees exist)
     assigneeId = None
     assignees = task.get('assignees', [])
@@ -176,13 +184,14 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         'issue_url': task.get('url'),
         'reporter_id': None,
         'status': task.get('status', {}).get('status') if task.get('status') else None,
-        'summary': task.get('name'),
+        'summary': summary,
         'description': task.get('description'),
         'sprint_id': sprint_id,  # Now using the actual database sprint id (foreign key)
         'org_id': ORG_ID,
         'current_progress' : progress,
         'status_change_date' : updated_at,
         'issue_type' : issue_type,
+        'story_point' : task.get('points'),
         'parent_task_id' : parent_id #parent
         
     }
