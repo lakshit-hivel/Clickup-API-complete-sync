@@ -569,53 +569,29 @@ def insert_workspace_custom_field_to_db(workspace_custom_field, conn):
             cursor.close()
 
 def insert_user_to_db(user_data, conn):
-    """Insert or update a user with encrypted name and email"""
+    """Insert a new user to the author table."""
     cursor = None
     
     try:
+        # First check if user with this email already exists
+        existing_user_id = find_user_by_email(user_data.get('email'), user_data.get('organizationid'), conn)
+        if existing_user_id:
+            print(f"User with email {user_data.get('email')} already exists, skipping insert")
+            return
         cursor = conn.cursor()
-        
-        # Check if user exists by comparing encrypted name
-        # We encrypt the input name and compare it with stored encrypted names
-        # Cast name column to bytea since aes_encrypt returns bytea
-        check_query = """
-            SELECT id FROM insightly.author 
-            WHERE name::bytea = aes_encrypt(%(name)s) 
-            AND organizationid = %(organizationid)s
-            AND scmprovider = %(scmprovider)s
-            LIMIT 1
+        insert_query = """
+            INSERT INTO insightly.author (
+                type, name, email, organizationid, scmprovider, active
+            ) VALUES (
+                %(type)s, aes_encrypt(%(name)s), aes_encrypt(%(email)s), %(organizationid)s, %(scmprovider)s, %(active)s
+            )
         """
-        
-        cursor.execute(check_query, user_data)
-        existing = cursor.fetchone()
-        
-        if existing:
-            # Update existing user
-            update_query = """
-                UPDATE insightly.author SET
-                    type = %(type)s,
-                    email = aes_encrypt(%(email)s),
-                    active = %(active)s
-                WHERE name::bytea = aes_encrypt(%(name)s) 
-                AND organizationid = %(organizationid)s
-                AND scmprovider = %(scmprovider)s
-            """
-            cursor.execute(update_query, user_data)
-        else:
-            # Insert new user
-            insert_query = """
-                INSERT INTO insightly.author (
-                    type, name, email, organizationid, scmprovider, active
-                ) VALUES (
-                    %(type)s, aes_encrypt(%(name)s), aes_encrypt(%(email)s), %(organizationid)s, %(scmprovider)s, %(active)s
-                )
-            """
-            cursor.execute(insert_query, user_data)
+        cursor.execute(insert_query, user_data)
         
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting user {user_data.get('name')}: {e}")
+        print(f"Error inserting user {user_data.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
