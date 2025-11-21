@@ -37,12 +37,24 @@ def get_lists_from_folder(folder_id):
 
 
 def get_tasks_from_list(list_id):
-    """Fetch all tasks from a list"""
-    url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_closed=true&page=0'
-    response = requests.get(url, headers=get_clickup_headers())
-    response.raise_for_status()
-    data = response.json()
-    return data.get('tasks', [])
+    """Fetch all tasks from a list with automatic pagination"""
+    all_tasks = []
+    page_num = 0
+    
+    while True:
+        url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_timl=true&include_closed=true&page={page_num}'
+        response = requests.get(url, headers=get_clickup_headers())
+        response.raise_for_status()
+        data = response.json()
+        tasks = data.get('tasks', [])
+        
+        all_tasks.extend(tasks)
+        if len(tasks) < 100:
+            break
+            
+        page_num += 1
+    
+    return all_tasks
 
 def get_custom_task_types():
     """Fetch all custom task types"""
