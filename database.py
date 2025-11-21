@@ -620,3 +620,24 @@ def find_user_by_email(email, org_id, conn):
     finally:
         if cursor:
             cursor.close()
+
+def get_clickup_access_token(provider, org_id, conn):
+    """Get the ClickUp access token for a given provider and organization"""
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT aes_decrypt(accesstoken) FROM insightly.user_integration_details 
+            WHERE provider = %s AND organizationid = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (provider, org_id))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting ClickUp access token for provider {provider} and organization {org_id}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()
