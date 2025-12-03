@@ -40,3 +40,5 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+create_orphan_board.py

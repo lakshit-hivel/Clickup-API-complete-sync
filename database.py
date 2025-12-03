@@ -220,13 +220,13 @@ def insert_issue_to_db(issue, conn):
                 resolution_date, time_spent, parent_id, is_deleted,
                 assignee_id, creator_id, due_date, issue_id, key,
                 parent_issue_id, project_id, reporter_id, status,
-                summary, description, sprint_id, issue_url, org_id, current_progress, status_change_date, issue_type, parent_task_id
+                summary, description, sprint_id, issue_url, org_id, current_progress, status_change_date, issue_type, parent_task_id, story_point
             ) VALUES (
                 %(created_at)s, %(modifieddate)s, %(board_id)s, %(priority)s,
                 %(resolution_date)s, %(time_spent)s, %(parent_id)s, %(is_deleted)s,
                 %(assignee_id)s, %(creator_id)s, %(due_date)s, %(issue_id)s, %(key)s,
                 %(parent_issue_id)s, %(project_id)s, %(reporter_id)s, %(status)s,
-                %(summary)s, %(description)s, %(sprint_id)s, %(issue_url)s, %(org_id)s, %(current_progress)s, %(status_change_date)s, %(issue_type)s, %(parent_task_id)s
+                %(summary)s, %(description)s, %(sprint_id)s, %(issue_url)s, %(org_id)s, %(current_progress)s, %(status_change_date)s, %(issue_type)s, %(parent_task_id)s, %(story_point)s
             )
         """
         
@@ -255,7 +255,8 @@ def insert_issue_to_db(issue, conn):
                 current_progress = %(current_progress)s,
                 status_change_date = %(status_change_date)s,
                 issue_type = %(issue_type)s,
-                parent_task_id = %(parent_task_id)s
+                parent_task_id = %(parent_task_id)s,
+                story_point = %(story_point)s
             WHERE issue_id = %(issue_id)s AND org_id = %(org_id)s
         """
         
@@ -566,3 +567,209 @@ def insert_workspace_custom_field_to_db(workspace_custom_field, conn):
     finally:
         if cursor:
             cursor.close()
+
+def insert_user_to_db(user_data, conn):
+    """Insert a new user to the author table."""
+    cursor = None
+    
+    try:
+        # First check if user with this email already exists
+        existing_user_id = find_user_by_email(user_data.get('email'), user_data.get('organizationid'), conn)
+        if existing_user_id:
+            print(f"User with email {user_data.get('email')} already exists, skipping insert")
+            return
+        cursor = conn.cursor()
+        insert_query = """
+            INSERT INTO insightly.author (
+                type, name, email, organizationid, scmprovider, active
+            ) VALUES (
+                %(type)s, aes_encrypt(%(name)s), aes_encrypt(%(email)s), %(organizationid)s, %(scmprovider)s, %(active)s
+            )
+        """
+        cursor.execute(insert_query, user_data)
+        
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error inserting user {user_data.get('name')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def find_user_by_email(email, org_id, conn):
+    """Find a user by email (comparing encrypted values)"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        # Cast email column to bytea since aes_encrypt returns bytea
+        query = """
+            SELECT id FROM insightly.author 
+            WHERE email::bytea = aes_encrypt(%s) AND organizationid = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (email, org_id))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error finding user by email {email}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
+def get_issue_id(issue_id, conn):
+    """Get the issue id from the issue table"""
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT id FROM insightly_jira.issue WHERE issue_id = %s
+        """
+        cursor.execute(query, (issue_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting issue id {issue_id}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
+def get_pr_id(htmllink, conn):
+    """Get the pr id from the pr table"""
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT id FROM insightly.pull_request WHERE htmllink = %s
+        """
+        cursor.execute(query, (htmllink,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting pr id {htmllink}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
+def get_clickup_access_token(provider, org_id, conn):
+    """Get the ClickUp access token for a given provider and organization"""
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT aes_decrypt(accesstoken) FROM insightly.user_integration_details 
+            WHERE provider = %s AND organizationid = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (provider, org_id))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting ClickUp access token for provider {provider} and organization {org_id}: {e}")
+        conn.rollback()  # Rollback to clear failed transaction state
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
+def insert_activity_issue_mapping(mapping_data, conn):
+    """Insert or update a PR-to-issue mapping in the jira_issue_git_activity_mapping table"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Insert query with ON CONFLICT DO NOTHING to handle duplicates gracefully
+        # The unique constraint is on (activity_type, activity_id, activity_date, issue_key)
+        insert_query = """
+            INSERT INTO insightly.jira_issue_git_activity_mapping (
+                activity_id, organization_id, issue_id, activity_type
+            ) VALUES (
+                %(activity_id)s, %(org_id)s, %(issue_id)s, %(activity_type)s
+            )
+            ON CONFLICT DO NOTHING
+        """
+        
+        cursor.execute(insert_query, mapping_data)
+        conn.commit()
+        
+    except Exception as e:
+        print(f"Error upserting activity-issue mapping: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+
+def insert_folderless_list_to_db(folderless_list, conn):
+    """Insert or update a folderless list in the sprint table and return its id"""
+    cursor = None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Check query to see if sprint exists
+        check_query = """
+            SELECT id FROM insightly_jira.sprint 
+            WHERE sprint_jira_id = %(sprint_jira_id)s AND org_id = %(org_id)s AND board_id = %(board_id)s
+            LIMIT 1
+        """
+        
+        # Insert query with RETURNING id
+        insert_query = """
+            INSERT INTO insightly_jira.sprint (
+                created_at, is_deleted, modifieddate, board_id,
+                end_date, goal, name, sprint_jira_id, start_date,
+                org_id, jira_board_id, complete_date
+            ) VALUES (
+                %(created_at)s, %(is_deleted)s, %(modifieddate)s, %(board_id)s,
+                %(end_date)s, %(goal)s, %(name)s, %(sprint_jira_id)s, %(start_date)s,
+                %(org_id)s, %(jira_board_id)s, %(complete_date)s
+            )
+            RETURNING id
+        """
+        
+        # Update query with RETURNING id
+        update_query = """
+            UPDATE insightly_jira.sprint SET
+                is_deleted = %(is_deleted)s,
+                modifieddate = %(modifieddate)s,
+                board_id = %(board_id)s,
+                end_date = %(end_date)s,
+                goal = %(goal)s,
+                name = %(name)s,
+                start_date = %(start_date)s,
+                jira_board_id = %(jira_board_id)s,
+                complete_date = %(complete_date)s
+            WHERE sprint_jira_id = %(sprint_jira_id)s AND org_id = %(org_id)s AND board_id = %(board_id)s
+            RETURNING id
+        """
+        
+        # Check if sprint exists
+        cursor.execute(check_query, folderless_list)
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing sprint and get its id
+            cursor.execute(update_query, folderless_list)
+            sprint_id = cursor.fetchone()[0]
+        else:
+            # Insert new sprint and get its id
+            cursor.execute(insert_query, folderless_list)
+            sprint_id = cursor.fetchone()[0]
+        
+        conn.commit()
+        return sprint_id
+        
+    except Exception as e:
+        print(f"Error upserting folderless list {folderless_list.get('name')}: {e}")
+        conn.rollback()
+        raise
