@@ -1,6 +1,7 @@
 from datetime import datetime
 from config import ORG_ID
-from database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id
+from database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id, get_pr_id, get_issue_id, insert_issue_to_db
+from clickup_api import get_task_by_id
 
 
 def map_folder_to_board(folder, space_id, now):
@@ -73,6 +74,86 @@ def map_list_to_sprint(clickup_list, folder_id, board_id, now):
     }
 
 
+def map_folderless_list_to_sprint(folderless_list, now):
+    """Map ClickUp Folderless List to Sprint table schema"""
+    end_date = folderless_list.get('due_date')
+    if end_date:
+        end_date = datetime.fromtimestamp(int(end_date) / 1000)
+    else:
+        end_date = None
+    
+    start_date = folderless_list.get('start_date')
+    if start_date:
+        start_date = datetime.fromtimestamp(int(start_date) / 1000)
+    else:
+        start_date = None
+
+    return {
+        'created_at': now,
+        'is_deleted': folderless_list.get('archived', False),
+        'modifieddate': now,
+        'board_id': 10011,
+        'end_date': end_date,
+        'complete_date': end_date,
+        'goal': folderless_list.get('content'),
+        'name': folderless_list.get('name'),
+        'sprint_jira_id': str(folderless_list.get('id')),
+        'start_date': start_date,
+        'org_id': ORG_ID,
+        'jira_board_id': 'FOLDERLESS_ORPHAN',
+    }
+
+def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn):
+    """Ensure a parent task exists in the database, fetching and inserting it if necessary.
+    
+    This function recursively handles nested parents (parent of parent of parent...).
+    
+    Args:
+        clickup_parent_id: The ClickUp ID of the parent task
+        board_id: The auto-generated board id from the database
+        sprint_id: The auto-generated sprint id from the database
+        space_id: ClickUp space id
+        now: Current timestamp
+        conn: Database connection
+        
+    Returns:
+        int: The database ID of the parent task, or None if fetch/insert fails
+    """
+    if not clickup_parent_id:
+        return None
+    
+    # First, check if parent already exists in database
+    parent_db_id = get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
+    if parent_db_id:
+        return parent_db_id
+    
+    # Parent not in database - fetch it from ClickUp API
+    print(f"    Fetching missing parent task: {clickup_parent_id}")
+    try:
+        parent_task = get_task_by_id(clickup_parent_id)
+    except Exception as e:
+        print(f"    Error fetching parent task {clickup_parent_id}: {e}")
+        return None
+    
+    # Recursively ensure this parent's own parent exists (for deep nesting)
+    parent_of_parent_clickup_id = parent_task.get('parent')
+    if parent_of_parent_clickup_id:
+        ensure_parent_exists(parent_of_parent_clickup_id, board_id, sprint_id, space_id, now, conn)
+    
+    # Also ensure top-level parent exists
+    top_level_parent_clickup_id = parent_task.get('top_level_parent')
+    if top_level_parent_clickup_id and top_level_parent_clickup_id != clickup_parent_id:
+        ensure_parent_exists(top_level_parent_clickup_id, board_id, sprint_id, space_id, now, conn)
+    
+    # Now map and insert the parent task
+    print(f"    Inserting missing parent task: {parent_task.get('name')}")
+    parent_issue_data = map_task_to_issue(parent_task, board_id, sprint_id, space_id, now, conn)
+    insert_issue_to_db(parent_issue_data, conn)
+    
+    # Return the newly inserted parent's database ID
+    return get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
+
+
 def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     """Map ClickUp Task to Issue table schema
     
@@ -115,19 +196,27 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     progress = progress_obj.get('orderindex') if progress_obj else None
 
     # Resolve parent_id: If task has a ClickUp parent, look up its database ID
+    # If parent doesn't exist yet, fetch and insert it first (handles deep nesting)
     clickup_parent_id = task.get('parent')
     parent_id = None
     if clickup_parent_id:
         parent_id = get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
         if not parent_id:
-            print(f"  Warning: Parent not found for task '{task.get('name')}' (ClickUp parent: {clickup_parent_id})")
+            # Parent not in DB yet - fetch and insert it first
+            parent_id = ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn)
+            if not parent_id:
+                print(f"  Warning: Could not resolve parent for task '{task.get('name')}' (ClickUp parent: {clickup_parent_id})")
     
+    # Resolve top_level_parent: ensure it exists in database
     clickup_top_level_parent_id = task.get('top_level_parent')
     top_level_parent = None
     if clickup_top_level_parent_id:
         top_level_parent = get_id_from_clickup_top_level_parent_id(clickup_top_level_parent_id, ORG_ID, conn)
         if not top_level_parent:
-            print(f"  Warning: Top-level parent not found for task '{task.get('name')}' (ClickUp top_level_parent: {clickup_top_level_parent_id})")
+            # Top-level parent not in DB yet - fetch and insert it first
+            top_level_parent = ensure_parent_exists(clickup_top_level_parent_id, board_id, sprint_id, space_id, now, conn)
+            if not top_level_parent:
+                print(f"  Warning: Could not resolve top-level parent for task '{task.get('name')}' (ClickUp top_level_parent: {clickup_top_level_parent_id})")
     
     # Get issue type from custom_item_id
     custom_item_id = task.get('custom_item_id')
@@ -196,6 +285,53 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         
     }
 
+def map_pr_id_to_issue_id(task, conn):
+    """Map PR ID to Issue ID by extracting PR link from task custom fields
+    
+    Args:
+        task: ClickUp task data containing custom fields
+        conn: Database connection
+        
+    Returns:
+        dict: Mapping of PR ID to Issue ID, or None if PR link not found or invalid
+    """
+    # Get the task ID (ClickUp task ID)
+    task_id = task.get('id')
+    if not task_id:
+        print(f"  Warning: Task has no ID, cannot create PR mapping")
+        return None
+    
+    # Find the issue's primary key in the database
+    issue_db_id = get_issue_id(str(task_id), conn)
+    if not issue_db_id:
+        print(f"  Warning: Issue not found in database for task ID {task_id}")
+        return None
+    
+    # Look for the "PR LINK" custom field in the task
+    custom_fields = task.get('custom_fields', [])
+    pr_link = None
+    
+    for field in custom_fields:
+        if field.get('name') == 'PR LINK':
+            pr_link = field.get('value')
+            break
+    
+    if not pr_link:
+        # No PR link found - this is okay, not all tasks have PRs
+        return None
+    
+    # Get the PR's primary key from the database using the GitHub URL
+    pr_db_id = get_pr_id(pr_link, conn)
+    if not pr_db_id:
+        print(f"  Warning: PR not found in database for link {pr_link}")
+        return None
+    
+    return {
+        'activity_id': pr_db_id,
+        'issue_id': issue_db_id,
+        'activity_type': 'PULL REQUEST',
+        'org_id': ORG_ID,
+    }
 
 def map_custom_task_type_to_custom_field(custom_task_type):
     """Map ClickUp Custom Task Type to Custom Field table schema"""

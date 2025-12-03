@@ -4,15 +4,17 @@ from datetime import datetime
 
 from clickup_api import (get_clickup_spaces, get_folders, get_lists_from_folder, get_tasks_from_list, 
                           get_custom_task_types, get_workspace_custom_fields, get_space_custom_fields,
-                          get_folder_custom_fields, get_custom_list_fields, get_users)
+                          get_folder_custom_fields, get_custom_list_fields, get_users, get_folderlesslists)
 from database import (insert_boards_to_db, insert_sprints_to_db, insert_issue_to_db, get_db_connection, 
                       insert_custom_field_to_db, insert_workspace_custom_field_to_db, 
                       insert_space_custom_field_to_db, insert_folder_custom_field_to_db, 
-                      insert_list_custom_field_to_db, insert_user_to_db)
+                      insert_list_custom_field_to_db, insert_user_to_db, insert_activity_issue_mapping,
+                      insert_folderless_list_to_db)
 from mappers import (map_folder_to_board, map_list_to_sprint, map_task_to_issue, 
                      map_custom_task_type_to_custom_field, map_workspace_custom_field_to_custom_field,
                      map_space_custom_field_to_custom_field, map_folder_custom_field_to_custom_field,
-                     map_list_custom_field_to_custom_field, map_users_to_usertable)
+                     map_list_custom_field_to_custom_field, map_users_to_usertable, map_pr_id_to_issue_id,
+                     map_folderless_list_to_sprint)
 
 
 def sync_clickup_data():
@@ -35,6 +37,12 @@ def sync_clickup_data():
         folder_custom_fields_count = 0
         list_custom_fields_count = 0
         users_count = 0  # Count of processed users
+        pr_mappings_count = 0  # Count of PR-to-issue mappings created
+        folderless_lists_count = 0  # Count of processed folderless lists
+        folderless_issues_count = 0  # Count of issues from folderless lists
+        
+        # Orphan board ID for folderless lists (from your mapper)
+        ORPHAN_BOARD_ID = 10011
         
         # Fetch and insert users - independent operation
         print("\nFetching Users...")
@@ -53,7 +61,6 @@ def sync_clickup_data():
             print(f"✓ Successfully processed {users_count} users\n")
         except Exception as e:
             print(f"Warning: Failed to sync users: {e}")
-            import traceback
             traceback.print_exc()
             print("Continuing with main sync...\n")
         
@@ -190,6 +197,71 @@ def sync_clickup_data():
                         issue_data = map_task_to_issue(task, board_id, sprint_id, space_id, now, conn)
                         insert_issue_to_db(issue_data, conn)
                         issues_count += 1
+                        
+                        # Check if task has a PR link and create mapping
+                        try:
+                            pr_mapping = map_pr_id_to_issue_id(task, conn)
+                            if pr_mapping:
+                                insert_activity_issue_mapping(pr_mapping, conn)
+                                pr_mappings_count += 1
+                        except Exception as e:
+                            print(f"          Warning: Failed to create PR mapping for task '{task.get('name')}': {e}")
+            
+            # Process folderless lists for this space
+            print(f"\n  Fetching folderless lists from space: {space_name}")
+            try:
+                folderless_lists = get_folderlesslists(space_id)
+                print(f"    Found {len(folderless_lists)} folderless lists")
+                
+                for fl_list in folderless_lists:
+                    fl_list_id = fl_list.get('id')
+                    fl_list_name = fl_list.get('name')
+                    
+                    # Map folderless list to sprint
+                    fl_sprint_data = map_folderless_list_to_sprint(fl_list, now)
+                    
+                    # Insert folderless list as sprint
+                    print(f"    Inserting folderless sprint: {fl_list_name}")
+                    try:
+                        fl_sprint_id = insert_folderless_list_to_db(fl_sprint_data, conn)
+                        list_to_sprint_id[fl_list_id] = fl_sprint_id
+                        folderless_lists_count += 1
+                        print(f"    ✓ Folderless sprint inserted with id: {fl_sprint_id}")
+                        
+                        # Fetch and insert tasks from this folderless list
+                        print(f"      Fetching issues from folderless list: {fl_list_name}")
+                        fl_tasks = get_tasks_from_list(fl_list_id)
+                        print(f"        Found {len(fl_tasks)} tasks")
+                        
+                        for fl_task in fl_tasks:
+                            try:
+                                fl_issue_data = map_task_to_issue(
+                                    fl_task, 
+                                    ORPHAN_BOARD_ID,  # Orphan board for folderless lists
+                                    fl_sprint_id, 
+                                    space_id, 
+                                    now, 
+                                    conn
+                                )
+                                insert_issue_to_db(fl_issue_data, conn)
+                                folderless_issues_count += 1
+                                
+                                # Check if task has a PR link and create mapping
+                                try:
+                                    pr_mapping = map_pr_id_to_issue_id(fl_task, conn)
+                                    if pr_mapping:
+                                        insert_activity_issue_mapping(pr_mapping, conn)
+                                        pr_mappings_count += 1
+                                except Exception as e:
+                                    print(f"          Warning: Failed to create PR mapping for task '{fl_task.get('name')}': {e}")
+                            except Exception as e:
+                                print(f"        Warning: Failed to insert task '{fl_task.get('name')}': {e}")
+                                
+                    except Exception as e:
+                        print(f"    Warning: Failed to insert folderless sprint '{fl_list_name}': {e}")
+                        
+            except Exception as e:
+                print(f"  Warning: Failed to fetch folderless lists for space '{space_name}': {e}")
         
         # Summary
         print("\n" + "="*60)
@@ -203,7 +275,10 @@ def sync_clickup_data():
         print(f"Total List Custom Fields: {list_custom_fields_count}")
         print(f"Total Boards (Folders): {len(folder_to_board_id)}")
         print(f"Total Sprints (Lists): {len(list_to_sprint_id)}")
+        print(f"Total Folderless Lists: {folderless_lists_count}")
         print(f"Total Issues (Tasks): {issues_count}")
+        print(f"Total Folderless Issues: {folderless_issues_count}")
+        print(f"Total PR-to-Issue Mappings: {pr_mappings_count}")
         
         print("\n" + "="*60)
         print("✓ SYNC COMPLETED SUCCESSFULLY!")

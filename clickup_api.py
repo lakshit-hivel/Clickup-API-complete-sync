@@ -109,3 +109,26 @@ def get_users():
     teams = data.get('teams', [])
     for team in teams:
         return team.get('members', [])
+
+def get_folderlesslists(space_id):
+    """Fetch all folderless lists"""
+    url = f'{CLICKUP_API_BASE}/space/{space_id}/list'
+    response = requests.get(url, headers=get_clickup_headers())
+    response.raise_for_status()
+    data = response.json()
+    return data.get('lists', [])
+
+
+def get_task_by_id(task_id):
+    """Fetch a single task by its ClickUp task ID
+    
+    Args:
+        task_id: The ClickUp task ID to fetch
+        
+    Returns:
+        dict: The task data from ClickUp API
+    """
+    url = f'{CLICKUP_API_BASE}/task/{task_id}?include_subtasks=true'
+    response = requests.get(url, headers=get_clickup_headers())
+    response.raise_for_status()
+    return response.json()
