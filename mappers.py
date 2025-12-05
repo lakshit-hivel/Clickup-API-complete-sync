@@ -1,10 +1,9 @@
 from datetime import datetime
-from config import ORG_ID
 from database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id, get_pr_id, get_issue_id, insert_issue_to_db
 from clickup_api import get_task_by_id
 
 
-def map_folder_to_board(folder, space_id, now):
+def map_folder_to_board(folder, space_id, now, org_id):
     """Map ClickUp Folder to Board table schema"""
     folder_id = folder.get('id')
     folder_name = folder.get('name')
@@ -16,7 +15,7 @@ def map_folder_to_board(folder, space_id, now):
         'board_key': str(folder_id),
         'created_at': now,
         'modifieddate': now,
-        'org_id': ORG_ID,
+        'org_id': org_id,
         'account_id': str(space_id),
         'active': not folder.get('archived', False),
         'is_deleted': folder.get('archived', False),
@@ -32,7 +31,7 @@ def map_folder_to_board(folder, space_id, now):
     }
 
 
-def map_list_to_sprint(clickup_list, folder_id, board_id, now):
+def map_list_to_sprint(clickup_list, folder_id, board_id, now, org_id):
     """Map ClickUp List to Sprint table schema"""
     list_id = clickup_list.get('id')
     list_name = clickup_list.get('name')
@@ -69,12 +68,12 @@ def map_list_to_sprint(clickup_list, folder_id, board_id, now):
         'sprint_jira_id': str(list_id),
         'start_date': start_date,
         'state': state,
-        'org_id': ORG_ID,
+        'org_id': org_id,
         'jira_board_id': str(folder_id),
     }
 
 
-def map_folderless_list_to_sprint(folderless_list, now):
+def map_folderless_list_to_sprint(folderless_list, now, org_id):
     """Map ClickUp Folderless List to Sprint table schema"""
     end_date = folderless_list.get('due_date')
     if end_date:
@@ -99,11 +98,12 @@ def map_folderless_list_to_sprint(folderless_list, now):
         'name': folderless_list.get('name'),
         'sprint_jira_id': str(folderless_list.get('id')),
         'start_date': start_date,
-        'org_id': ORG_ID,
+        'org_id': org_id,
         'jira_board_id': 'FOLDERLESS_ORPHAN',
     }
 
-def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn):
+
+def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn, org_id, api_token):
     """Ensure a parent task exists in the database, fetching and inserting it if necessary.
     
     This function recursively handles nested parents (parent of parent of parent...).
@@ -115,6 +115,8 @@ def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, 
         space_id: ClickUp space id
         now: Current timestamp
         conn: Database connection
+        org_id: Organization ID
+        api_token: ClickUp API token
         
     Returns:
         int: The database ID of the parent task, or None if fetch/insert fails
@@ -123,14 +125,14 @@ def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, 
         return None
     
     # First, check if parent already exists in database
-    parent_db_id = get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
+    parent_db_id = get_parent_id_from_clickup_id(clickup_parent_id, org_id, conn)
     if parent_db_id:
         return parent_db_id
     
     # Parent not in database - fetch it from ClickUp API
     print(f"    Fetching missing parent task: {clickup_parent_id}")
     try:
-        parent_task = get_task_by_id(clickup_parent_id)
+        parent_task = get_task_by_id(api_token, clickup_parent_id)
     except Exception as e:
         print(f"    Error fetching parent task {clickup_parent_id}: {e}")
         return None
@@ -138,23 +140,23 @@ def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, 
     # Recursively ensure this parent's own parent exists (for deep nesting)
     parent_of_parent_clickup_id = parent_task.get('parent')
     if parent_of_parent_clickup_id:
-        ensure_parent_exists(parent_of_parent_clickup_id, board_id, sprint_id, space_id, now, conn)
+        ensure_parent_exists(parent_of_parent_clickup_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
     
     # Also ensure top-level parent exists
     top_level_parent_clickup_id = parent_task.get('top_level_parent')
     if top_level_parent_clickup_id and top_level_parent_clickup_id != clickup_parent_id:
-        ensure_parent_exists(top_level_parent_clickup_id, board_id, sprint_id, space_id, now, conn)
+        ensure_parent_exists(top_level_parent_clickup_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
     
     # Now map and insert the parent task
     print(f"    Inserting missing parent task: {parent_task.get('name')}")
-    parent_issue_data = map_task_to_issue(parent_task, board_id, sprint_id, space_id, now, conn)
+    parent_issue_data = map_task_to_issue(parent_task, board_id, sprint_id, space_id, now, conn, org_id, api_token)
     insert_issue_to_db(parent_issue_data, conn)
     
     # Return the newly inserted parent's database ID
-    return get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
+    return get_parent_id_from_clickup_id(clickup_parent_id, org_id, conn)
 
 
-def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
+def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, api_token):
     """Map ClickUp Task to Issue table schema
     
     Args:
@@ -164,6 +166,8 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         space_id: ClickUp space id
         now: Current timestamp
         conn: Database connection for parent lookups
+        org_id: Organization ID
+        api_token: ClickUp API token
     """
     task_id = task.get('id')
     
@@ -200,10 +204,10 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     clickup_parent_id = task.get('parent')
     parent_id = None
     if clickup_parent_id:
-        parent_id = get_parent_id_from_clickup_id(clickup_parent_id, ORG_ID, conn)
+        parent_id = get_parent_id_from_clickup_id(clickup_parent_id, org_id, conn)
         if not parent_id:
             # Parent not in DB yet - fetch and insert it first
-            parent_id = ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn)
+            parent_id = ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
             if not parent_id:
                 print(f"  Warning: Could not resolve parent for task '{task.get('name')}' (ClickUp parent: {clickup_parent_id})")
     
@@ -211,10 +215,10 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     clickup_top_level_parent_id = task.get('top_level_parent')
     top_level_parent = None
     if clickup_top_level_parent_id:
-        top_level_parent = get_id_from_clickup_top_level_parent_id(clickup_top_level_parent_id, ORG_ID, conn)
+        top_level_parent = get_id_from_clickup_top_level_parent_id(clickup_top_level_parent_id, org_id, conn)
         if not top_level_parent:
             # Top-level parent not in DB yet - fetch and insert it first
-            top_level_parent = ensure_parent_exists(clickup_top_level_parent_id, board_id, sprint_id, space_id, now, conn)
+            top_level_parent = ensure_parent_exists(clickup_top_level_parent_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
             if not top_level_parent:
                 print(f"  Warning: Could not resolve top-level parent for task '{task.get('name')}' (ClickUp top_level_parent: {clickup_top_level_parent_id})")
     
@@ -222,7 +226,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     custom_item_id = task.get('custom_item_id')
     issue_type = None
     if custom_item_id and custom_item_id != 0:
-        issue_type = get_custom_field_name_from_id(custom_item_id, ORG_ID, conn)
+        issue_type = get_custom_field_name_from_id(custom_item_id, org_id, conn)
         if not issue_type:
             print(f"  Warning: Custom field not found for task '{task.get('name')}' (custom_item_id: {custom_item_id})")
     else:
@@ -240,7 +244,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     if assignees and len(assignees) > 0:
         assigneeEmail = assignees[0].get('email')
         if assigneeEmail:
-            assigneeId = find_user_by_email(assigneeEmail, ORG_ID, conn)
+            assigneeId = find_user_by_email(assigneeEmail, org_id, conn)
             if not assigneeId:
                 print(f"  Warning: Assignee not found for task '{task.get('name')}' (assigneeEmail: {assigneeEmail})")
     
@@ -250,7 +254,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
     if creator:
         creatorEmail = creator.get('email')
         if creatorEmail:
-            creatorId = find_user_by_email(creatorEmail, ORG_ID, conn)
+            creatorId = find_user_by_email(creatorEmail, org_id, conn)
             if not creatorId:
                 print(f"  Warning: Creator not found for task '{task.get('name')}' (creatorEmail: {creatorEmail})")
 
@@ -276,7 +280,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         'summary': summary,
         'description': task.get('description'),
         'sprint_id': sprint_id,  # Now using the actual database sprint id (foreign key)
-        'org_id': ORG_ID,
+        'org_id': org_id,
         'current_progress' : progress,
         'status_change_date' : updated_at,
         'issue_type' : issue_type,
@@ -285,12 +289,14 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn):
         
     }
 
-def map_pr_id_to_issue_id(task, conn):
+
+def map_pr_id_to_issue_id(task, conn, org_id):
     """Map PR ID to Issue ID by extracting PR link from task custom fields
     
     Args:
         task: ClickUp task data containing custom fields
         conn: Database connection
+        org_id: Organization ID
         
     Returns:
         dict: Mapping of PR ID to Issue ID, or None if PR link not found or invalid
@@ -330,56 +336,61 @@ def map_pr_id_to_issue_id(task, conn):
         'activity_id': pr_db_id,
         'issue_id': issue_db_id,
         'activity_type': 'PULL REQUEST',
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
-def map_custom_task_type_to_custom_field(custom_task_type):
+
+def map_custom_task_type_to_custom_field(custom_task_type, org_id):
     """Map ClickUp Custom Task Type to Custom Field table schema"""
     return {
         'jira_id': str(custom_task_type.get('id')),
         'name': custom_task_type.get('name'),
         'description': custom_task_type.get('description'),
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
-def map_list_custom_field_to_custom_field(list_custom_field):
+
+def map_list_custom_field_to_custom_field(list_custom_field, org_id):
     """Map ClickUp List Custom Field to Custom Field table schema"""
     return {
         'jira_id': str(list_custom_field.get('id')),
         'name': list_custom_field.get('name'),
         'data_type': list_custom_field.get('type'),
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
-def map_folder_custom_field_to_custom_field(folder_custom_field):
+
+def map_folder_custom_field_to_custom_field(folder_custom_field, org_id):
     """Map ClickUp Folder Custom Field to Custom Field table schema"""
     return {
         'jira_id': str(folder_custom_field.get('id')),
         'name': folder_custom_field.get('name'),
         'data_type': folder_custom_field.get('type'),
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
-def map_space_custom_field_to_custom_field(space_custom_field):
+
+def map_space_custom_field_to_custom_field(space_custom_field, org_id):
     """Map ClickUp Space Custom Field to Custom Field table schema"""
     return {
         'jira_id': str(space_custom_field.get('id')),
         'name': space_custom_field.get('name'),
         'data_type': space_custom_field.get('type'),
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
-def map_workspace_custom_field_to_custom_field(workspace_custom_field):
+
+def map_workspace_custom_field_to_custom_field(workspace_custom_field, org_id):
     """Map ClickUp Workspace Custom Field to Custom Field table schema"""
     return {
         'jira_id': str(workspace_custom_field.get('id')),
         'name': workspace_custom_field.get('name'),
         'data_type': workspace_custom_field.get('type'),
-        'org_id': ORG_ID,
+        'org_id': org_id,
     }
 
 
-def map_users_to_usertable(user):
+def map_users_to_usertable(user, org_id):
     """Map ClickUp User to User table schema"""
     # Extract nested user object if it exists
     user_data = user.get('user', user)
@@ -391,7 +402,24 @@ def map_users_to_usertable(user):
         'type': "USER",
         'name': username,
         'email': user_data.get('email'),
-        'organizationid': ORG_ID,
+        'organizationid': org_id,
         'scmprovider': "CLICKUP",
         'active': True
+    }
+
+
+def map_board_status(board, board_id, user_integration_id, now, org_id, sync_status, issue_count=0, sprint_count=0):
+    """Map per-board sync status to data_sync_process table schema"""
+    return {
+        # user_integration_id should come from user_integration_details table (FK), not ClickUp id
+        'user_integration_id': user_integration_id,
+        'organization_id': org_id,
+        'board_id': board_id,
+        'sync_status': sync_status,
+        'created_at': now,
+        'modifieddate': now,
+        'is_deleted': False,
+        'issue_count': issue_count,
+        'sprint_count': sprint_count,
+        'sync_type': 'INITIAL',
     }
