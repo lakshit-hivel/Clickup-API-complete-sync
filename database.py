@@ -824,6 +824,43 @@ def update_sync_status(org_id, status, conn):
             cursor.close()
 
 
+def get_board_by_id(board_id, conn):
+    """
+    Get board info by database ID.
+    
+    Args:
+        board_id: The auto-generated database ID (id column)
+        conn: Database connection
+        
+    Returns:
+        dict with 'clickup_folder_id' (jira_board_id), 'org_id', 'name', or None if not found
+    """
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT jira_board_id, org_id, name FROM insightly_jira.board 
+            WHERE id = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (board_id,))
+        result = cursor.fetchone()
+        if result:
+            return {
+                'clickup_folder_id': result[0],
+                'org_id': result[1],
+                'name': result[2]
+            }
+        return None
+    except Exception as e:
+        print(f"Error fetching board by id {board_id}: {e}")
+        conn.rollback()
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
+
 def upsert_board_sync_status(sync_row, conn):
     """
     Insert or update a row in insightly_jira.data_sync_process for a specific board.

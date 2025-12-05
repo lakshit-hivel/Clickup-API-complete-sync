@@ -60,7 +60,7 @@ def get_tasks_from_list(api_token, list_id, date_updated_gt=None):
     page_num = 0
     
     while True:
-        url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_timl=true&include_closed=true&page={page_num}'
+        url = f'{CLICKUP_API_BASE}/list/{list_id}/task?subtasks=true&order_by=updated&include_closed=true&page={page_num}'
         if date_updated_gt:
             url += f'&date_updated_gt={date_updated_gt}'
         response = requests.get(url, headers=get_clickup_headers(api_token))
