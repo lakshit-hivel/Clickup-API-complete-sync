@@ -680,6 +680,28 @@ def get_clickup_access_token(provider, org_id, conn):
         if cursor:
             cursor.close()
 
+
+def get_clickup_user_integration_id(provider, org_id, conn):
+    """Get the user_integration_details.id for a given provider and organization"""
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT id FROM insightly.user_integration_details 
+            WHERE provider = %s AND organizationid = %s
+            LIMIT 1
+        """
+        cursor.execute(query, (provider, org_id))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting ClickUp user integration id for provider {provider} and organization {org_id}: {e}")
+        conn.rollback()
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+
 def insert_activity_issue_mapping(mapping_data, conn):
     """Insert or update a PR-to-issue mapping in the jira_issue_git_activity_mapping table"""
     cursor = None
@@ -773,3 +795,107 @@ def insert_folderless_list_to_db(folderless_list, conn):
         print(f"Error upserting folderless list {folderless_list.get('name')}: {e}")
         conn.rollback()
         raise
+
+
+def update_sync_status(org_id, status, conn):
+    """Update sync status in user_integration_details table
+    
+    Args:
+        org_id: Organization ID
+        status: One of 'sync started', 'sync in progress', 'sync completed'
+        conn: Database connection
+    """
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        query = """
+            UPDATE insightly.user_integration_details 
+            SET sync_status = %s 
+            WHERE organizationid = %s AND provider = 'CLICKUP'
+        """
+        cursor.execute(query, (status, org_id))
+        conn.commit()
+        print(f"✓ Sync status updated to: {status}")
+    except Exception as e:
+        print(f"Error updating sync status to '{status}': {e}")
+        conn.rollback()
+    finally:
+        if cursor:
+            cursor.close()
+
+
+def upsert_board_sync_status(sync_row, conn):
+    """
+    Insert or update a row in insightly_jira.data_sync_process for a specific board.
+    
+    Expects sync_row dict with keys:
+        user_integration_id, organization_id, board_id,
+        sync_status, created_at, modifieddate, is_deleted,
+        issue_count, sprint_count, sync_type
+    """
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        # First check if a row already exists for this org + board + sync_type
+        check_query = """
+            SELECT id FROM insightly_jira.data_sync_process
+            WHERE organization_id = %(organization_id)s
+              AND board_id = %(board_id)s
+              AND sync_type = %(sync_type)s
+            LIMIT 1
+        """
+
+        insert_query = """
+            INSERT INTO insightly_jira.data_sync_process (
+                user_integration_id,
+                organization_id,
+                board_id,
+                sync_status,
+                created_at,
+                modifieddate,
+                is_deleted,
+                issue_count,
+                sprint_count,
+                sync_type
+            ) VALUES (
+                %(user_integration_id)s,
+                %(organization_id)s,
+                %(board_id)s,
+                %(sync_status)s,
+                %(created_at)s,
+                %(modifieddate)s,
+                %(is_deleted)s,
+                %(issue_count)s,
+                %(sprint_count)s,
+                %(sync_type)s
+            )
+        """
+
+        update_query = """
+            UPDATE insightly_jira.data_sync_process SET
+                sync_status = %(sync_status)s,
+                modifieddate = %(modifieddate)s,
+                is_deleted = %(is_deleted)s,
+                issue_count = %(issue_count)s,
+                sprint_count = %(sprint_count)s
+            WHERE organization_id = %(organization_id)s
+              AND board_id = %(board_id)s
+              AND sync_type = %(sync_type)s
+        """
+
+        cursor.execute(check_query, sync_row)
+        existing = cursor.fetchone()
+
+        if existing:
+            cursor.execute(update_query, sync_row)
+        else:
+            cursor.execute(insert_query, sync_row)
+
+        conn.commit()
+    except Exception as e:
+        print(f"Error upserting board sync status for board_id {sync_row.get('board_id')}: {e}")
+        conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()

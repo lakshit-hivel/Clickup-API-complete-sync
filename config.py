@@ -1,15 +1,6 @@
 import os
 from dotenv import load_dotenv
-
-# from database import get_clickup_access_token
-
 load_dotenv()
-
-ORG_ID = 2133
-
-# ClickUp Configuration
-# CLICKUP_API_TOKEN = get_clickup_access_token("CLICKUP", ORG_ID)
-CLICKUP_API_TOKEN = "pk_254604902_2R3IJG0UZCL1A35H9UUZO3P4HXUYRW6J"
 TEAM_ID = os.getenv('CLICKUP_TEAM_ID')
 CLICKUP_API_BASE = 'https://api.clickup.com/api/v2'
 
