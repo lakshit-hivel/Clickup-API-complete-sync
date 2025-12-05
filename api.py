@@ -3,7 +3,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 import uvicorn
 from database import get_db_connection, get_clickup_access_token
 from clickup_api import get_authorized_teams
-from main import sync_clickup_data
+from main import sync_clickup_data, sync_single_board
 
 app = FastAPI(title="ClickUp Sync API")
 
@@ -30,6 +30,32 @@ async def trigger_sync(org_id: int, days: int = 30, background_tasks: Background
     return {
         "status": "started",
         "message": f"Sync initiated for org_id={org_id}, syncing tasks from last {days} days",
+        "org_id": org_id
+    }
+
+
+@app.post("/sync/board")
+async def trigger_board_sync(board_id: int, org_id: int, days: int = 30, background_tasks: BackgroundTasks = None):
+    """
+    Trigger a ClickUp sync for a specific existing board.
+    
+    - board_id: The database ID of the board (id column from board table, NOT ClickUp folder_id)
+    - org_id: The organization ID
+    - days: Number of days to look back for updated tasks (default: 30)
+    """
+    
+    # Check if sync is already running for this board
+    board_key = f"board_{board_id}"
+    if board_key in sync_jobs and sync_jobs[board_key].get("status") == "running":
+        raise HTTPException(status_code=409, detail=f"Sync already in progress for board_id={board_id}")
+    
+    # Add sync task to background
+    background_tasks.add_task(run_board_sync_task, board_id, org_id, days)
+    
+    return {
+        "status": "started",
+        "message": f"Board sync initiated for board_id={board_id}, org_id={org_id}, syncing tasks from last {days} days",
+        "board_id": board_id,
         "org_id": org_id
     }
 
@@ -91,6 +117,52 @@ def run_sync_task(org_id: int, days: int):
         sync_jobs[org_id] = {
             "status": "failed",
             "started_at": sync_jobs[org_id]["started_at"],
+            "failed_at": datetime.now().isoformat(),
+            "error": str(e)
+        }
+    finally:
+        if conn:
+            conn.close()
+
+
+def run_board_sync_task(board_id: int, org_id: int, days: int):
+    """Background task to run the ClickUp sync for a single board"""
+    board_key = f"board_{board_id}"
+    sync_jobs[board_key] = {"status": "running", "started_at": datetime.now().isoformat()}
+    
+    conn = None
+    try:
+        # 1. Get database connection
+        conn = get_db_connection()
+        
+        # 2. Fetch api_token from DB using org_id
+        api_token = get_clickup_access_token("CLICKUP", org_id, conn)
+        if not api_token:
+            raise Exception(f"ClickUp access token not found for org_id={org_id}")
+        
+        # 3. Calculate date threshold for filtering tasks
+        date_threshold = datetime.now() - timedelta(days=days)
+        date_threshold_ms = int(date_threshold.timestamp() * 1000)
+        
+        # 4. Run the single board sync
+        result = sync_single_board(
+            board_id=board_id,
+            org_id=org_id,
+            api_token=api_token,
+            date_updated_gt=date_threshold_ms
+        )
+        
+        sync_jobs[board_key] = {
+            "status": "completed",
+            "started_at": sync_jobs[board_key]["started_at"],
+            "completed_at": datetime.now().isoformat(),
+            "result": result
+        }
+        
+    except Exception as e:
+        sync_jobs[board_key] = {
+            "status": "failed",
+            "started_at": sync_jobs[board_key]["started_at"],
             "failed_at": datetime.now().isoformat(),
             "error": str(e)
         }
