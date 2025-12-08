@@ -1,6 +1,6 @@
 import psycopg2
-import traceback
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+from src.core.config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+from src.core.logger import logger
 
 
 def get_db_connection():
@@ -19,10 +19,10 @@ def get_db_connection():
             keepalives_count=5,
             connect_timeout=30  # Increased timeout
         )
-        print("✓ Database connection established")
+        logger.debug("Database connection established")
         return conn
     except Exception as e:
-        print(f"Error connecting to database: {e}")
+        logger.error(f"Error connecting to database: {e}")
         raise
 
 
@@ -43,7 +43,7 @@ def get_parent_id_from_clickup_id(clickup_parent_id, org_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error fetching parent_id for ClickUp ID {clickup_parent_id}: {e}")
+        logger.error(f"Error fetching parent_id for ClickUp ID {clickup_parent_id}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -67,7 +67,7 @@ def get_id_from_clickup_top_level_parent_id(clickup_top_level_parent_id, org_id,
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error fetching id for ClickUp ID {clickup_top_level_parent_id}: {e}")
+        logger.error(f"Error fetching id for ClickUp ID {clickup_top_level_parent_id}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -123,7 +123,7 @@ def insert_boards_to_db(board_data, conn):
         return board_id
         
     except Exception as e:
-        print(f"Error upserting board {board_data.get('name')}: {e}")
+        logger.error(f"Error upserting board {board_data.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -192,7 +192,7 @@ def insert_sprints_to_db(sprint_data, conn):
         return sprint_id
         
     except Exception as e:
-        print(f"Error upserting sprint {sprint_data.get('name')}: {e}")
+        logger.error(f"Error upserting sprint {sprint_data.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -274,7 +274,7 @@ def insert_issue_to_db(issue, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting issue {issue.get('summary')}: {e}")
+        logger.error(f"Error upserting issue {issue.get('summary')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -326,7 +326,7 @@ def insert_custom_field_to_db(custom_field, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting custom field {custom_field.get('name')}: {e}")
+        logger.error(f"Error upserting custom field {custom_field.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -353,7 +353,7 @@ def get_custom_field_name_from_id(custom_item_id, org_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error fetching custom field name for ID {custom_item_id}: {e}")
+        logger.error(f"Error fetching custom field name for ID {custom_item_id}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -405,7 +405,7 @@ def insert_list_custom_field_to_db(list_custom_field, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting list custom field {list_custom_field.get('name')}: {e}")
+        logger.error(f"Error upserting list custom field {list_custom_field.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -457,7 +457,7 @@ def insert_folder_custom_field_to_db(folder_custom_field, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting folder custom field {folder_custom_field.get('name')}: {e}")
+        logger.error(f"Error upserting folder custom field {folder_custom_field.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -509,7 +509,7 @@ def insert_space_custom_field_to_db(space_custom_field, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting space custom field {space_custom_field.get('name')}: {e}")
+        logger.error(f"Error upserting space custom field {space_custom_field.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -561,7 +561,7 @@ def insert_workspace_custom_field_to_db(workspace_custom_field, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting workspace custom field {workspace_custom_field.get('name')}: {e}")
+        logger.error(f"Error upserting workspace custom field {workspace_custom_field.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -576,7 +576,7 @@ def insert_user_to_db(user_data, conn):
         # First check if user with this email already exists
         existing_user_id = find_user_by_email(user_data.get('email'), user_data.get('organizationid'), conn)
         if existing_user_id:
-            print(f"User with email {user_data.get('email')} already exists, skipping insert")
+            logger.debug(f"User with email {user_data.get('email')} already exists, skipping insert")
             return
         cursor = conn.cursor()
         insert_query = """
@@ -591,7 +591,7 @@ def insert_user_to_db(user_data, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error inserting user {user_data.get('name')}: {e}")
+        logger.error(f"Error inserting user {user_data.get('name')}: {e}")
         conn.rollback()
         raise
     finally:
@@ -614,7 +614,7 @@ def find_user_by_email(email, org_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error finding user by email {email}: {e}")
+        logger.error(f"Error finding user by email {email}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -633,7 +633,7 @@ def get_issue_id(issue_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error getting issue id {issue_id}: {e}")
+        logger.error(f"Error getting issue id {issue_id}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -652,7 +652,7 @@ def get_pr_id(htmllink, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error getting pr id {htmllink}: {e}")
+        logger.error(f"Error getting pr id {htmllink}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -673,7 +673,7 @@ def get_clickup_access_token(provider, org_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error getting ClickUp access token for provider {provider} and organization {org_id}: {e}")
+        logger.error(f"Error getting ClickUp access token for provider {provider} and organization {org_id}: {e}")
         conn.rollback()  # Rollback to clear failed transaction state
         return None
     finally:
@@ -695,7 +695,7 @@ def get_clickup_user_integration_id(provider, org_id, conn):
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Error getting ClickUp user integration id for provider {provider} and organization {org_id}: {e}")
+        logger.error(f"Error getting ClickUp user integration id for provider {provider} and organization {org_id}: {e}")
         conn.rollback()
         return None
     finally:
@@ -724,7 +724,7 @@ def insert_activity_issue_mapping(mapping_data, conn):
         conn.commit()
         
     except Exception as e:
-        print(f"Error upserting activity-issue mapping: {e}")
+        logger.error(f"Error upserting activity-issue mapping: {e}")
         conn.rollback()
         raise
     finally:
@@ -792,7 +792,7 @@ def insert_folderless_list_to_db(folderless_list, conn):
         return sprint_id
         
     except Exception as e:
-        print(f"Error upserting folderless list {folderless_list.get('name')}: {e}")
+        logger.error(f"Error upserting folderless list {folderless_list.get('name')}: {e}")
         conn.rollback()
         raise
 
@@ -815,9 +815,9 @@ def update_sync_status(org_id, status, conn):
         """
         cursor.execute(query, (status, org_id))
         conn.commit()
-        print(f"✓ Sync status updated to: {status}")
+        logger.info(f"Sync status updated to: {status}")
     except Exception as e:
-        print(f"Error updating sync status to '{status}': {e}")
+        logger.error(f"Error updating sync status to '{status}': {e}")
         conn.rollback()
     finally:
         if cursor:
@@ -853,7 +853,7 @@ def get_board_by_id(board_id, conn):
             }
         return None
     except Exception as e:
-        print(f"Error fetching board by id {board_id}: {e}")
+        logger.error(f"Error fetching board by id {board_id}: {e}")
         conn.rollback()
         return None
     finally:
@@ -930,7 +930,7 @@ def upsert_board_sync_status(sync_row, conn):
 
         conn.commit()
     except Exception as e:
-        print(f"Error upserting board sync status for board_id {sync_row.get('board_id')}: {e}")
+        logger.error(f"Error upserting board sync status for board_id {sync_row.get('board_id')}: {e}")
         conn.rollback()
         raise
     finally:

@@ -1,5 +1,5 @@
 import requests
-from config import CLICKUP_API_BASE
+from src.core.config import CLICKUP_API_BASE
 
 
 def get_clickup_headers(api_token):

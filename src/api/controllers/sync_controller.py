@@ -1,78 +1,27 @@
+"""
+Sync controller - handles business logic for sync API endpoints
+"""
 from datetime import datetime, timedelta
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-import uvicorn
-from database import get_db_connection, get_clickup_access_token
-from clickup_api import get_authorized_teams
-from main import sync_clickup_data, sync_single_board
-
-app = FastAPI(title="ClickUp Sync API")
+from src.db.database import get_db_connection, get_clickup_access_token
+from src.integrations.clickup_api import get_authorized_teams
+from src.services.sync_orchestrator import sync_clickup_data
+from src.services.boards.sync import sync_single_board
 
 # Track sync jobs in memory
 sync_jobs = {}
 
 
-@app.post("/sync")
-async def trigger_sync(org_id: int, days: int = 30, background_tasks: BackgroundTasks = None):
-    """
-    Trigger a ClickUp sync for the specified organization.
-    
-    - org_id: The organization ID to sync data for
-    - days: Number of days to look back for updated tasks (default: 30)
-    """
-    
-    # Check if sync is already running for this org
-    if org_id in sync_jobs and sync_jobs[org_id].get("status") == "running":
-        raise HTTPException(status_code=409, detail=f"Sync already in progress for org_id={org_id}")
-    
-    # Add sync task to background
-    background_tasks.add_task(run_sync_task, org_id, days)
-    
-    return {
-        "status": "started",
-        "message": f"Sync initiated for org_id={org_id}, syncing tasks from last {days} days",
-        "org_id": org_id
-    }
+def check_sync_in_progress(key: str) -> bool:
+    """Check if a sync is already in progress for the given key"""
+    return key in sync_jobs and sync_jobs[key].get("status") == "running"
 
 
-@app.post("/sync/board")
-async def trigger_board_sync(board_id: int, org_id: int, days: int = 30, background_tasks: BackgroundTasks = None):
-    """
-    Trigger a ClickUp sync for a specific existing board.
-    
-    - board_id: The database ID of the board (id column from board table, NOT ClickUp folder_id)
-    - org_id: The organization ID
-    - days: Number of days to look back for updated tasks (default: 30)
-    """
-    
-    # Check if sync is already running for this board
-    board_key = f"board_{board_id}"
-    if board_key in sync_jobs and sync_jobs[board_key].get("status") == "running":
-        raise HTTPException(status_code=409, detail=f"Sync already in progress for board_id={board_id}")
-    
-    # Add sync task to background
-    background_tasks.add_task(run_board_sync_task, board_id, org_id, days)
-    
-    return {
-        "status": "started",
-        "message": f"Board sync initiated for board_id={board_id}, org_id={org_id}, syncing tasks from last {days} days",
-        "board_id": board_id,
-        "org_id": org_id
-    }
-
-
-@app.get("/sync/status/{org_id}")
-async def get_sync_status(org_id: int):
+def get_sync_status(org_id: int) -> dict:
     """Get the status of the most recent sync job for an organization"""
     if org_id not in sync_jobs:
         return {"status": "no_sync_found", "org_id": org_id}
     
     return {"org_id": org_id, **sync_jobs[org_id]}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "ok"}
 
 
 def run_sync_task(org_id: int, days: int):
@@ -169,7 +118,3 @@ def run_board_sync_task(board_id: int, org_id: int, days: int):
     finally:
         if conn:
             conn.close()
-
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)

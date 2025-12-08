@@ -1,6 +1,7 @@
 from datetime import datetime
-from database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id, get_pr_id, get_issue_id, insert_issue_to_db
-from clickup_api import get_task_by_id
+from src.db.database import find_user_by_email, get_parent_id_from_clickup_id, get_id_from_clickup_top_level_parent_id, get_custom_field_name_from_id, get_pr_id, get_issue_id, insert_issue_to_db
+from src.integrations.clickup_api import get_task_by_id
+from src.core.logger import logger
 
 
 def map_folder_to_board(folder, space_id, now, org_id):
@@ -130,11 +131,11 @@ def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, 
         return parent_db_id
     
     # Parent not in database - fetch it from ClickUp API
-    print(f"    Fetching missing parent task: {clickup_parent_id}")
+    logger.debug(f"Fetching missing parent task: {clickup_parent_id}")
     try:
         parent_task = get_task_by_id(api_token, clickup_parent_id)
     except Exception as e:
-        print(f"    Error fetching parent task {clickup_parent_id}: {e}")
+        logger.warning(f"Error fetching parent task {clickup_parent_id}: {e}")
         return None
     
     # Recursively ensure this parent's own parent exists (for deep nesting)
@@ -148,7 +149,7 @@ def ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, 
         ensure_parent_exists(top_level_parent_clickup_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
     
     # Now map and insert the parent task
-    print(f"    Inserting missing parent task: {parent_task.get('name')}")
+    logger.debug(f"Inserting missing parent task: {parent_task.get('name')}")
     parent_issue_data = map_task_to_issue(parent_task, board_id, sprint_id, space_id, now, conn, org_id, api_token)
     insert_issue_to_db(parent_issue_data, conn)
     
@@ -209,7 +210,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, ap
             # Parent not in DB yet - fetch and insert it first
             parent_id = ensure_parent_exists(clickup_parent_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
             if not parent_id:
-                print(f"  Warning: Could not resolve parent for task '{task.get('name')}' (ClickUp parent: {clickup_parent_id})")
+                logger.warning(f"Could not resolve parent for task '{task.get('name')}' (ClickUp parent: {clickup_parent_id})")
     
     # Resolve top_level_parent: ensure it exists in database
     clickup_top_level_parent_id = task.get('top_level_parent')
@@ -220,7 +221,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, ap
             # Top-level parent not in DB yet - fetch and insert it first
             top_level_parent = ensure_parent_exists(clickup_top_level_parent_id, board_id, sprint_id, space_id, now, conn, org_id, api_token)
             if not top_level_parent:
-                print(f"  Warning: Could not resolve top-level parent for task '{task.get('name')}' (ClickUp top_level_parent: {clickup_top_level_parent_id})")
+                logger.warning(f"Could not resolve top-level parent for task '{task.get('name')}' (ClickUp top_level_parent: {clickup_top_level_parent_id})")
     
     # Get issue type from custom_item_id
     custom_item_id = task.get('custom_item_id')
@@ -228,7 +229,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, ap
     if custom_item_id and custom_item_id != 0:
         issue_type = get_custom_field_name_from_id(custom_item_id, org_id, conn)
         if not issue_type:
-            print(f"  Warning: Custom field not found for task '{task.get('name')}' (custom_item_id: {custom_item_id})")
+            logger.warning(f"Custom field not found for task '{task.get('name')}' (custom_item_id: {custom_item_id})")
     else:
         # If custom_item_id is 0 or None, default to "task"
         issue_type = "task"
@@ -246,7 +247,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, ap
         if assigneeEmail:
             assigneeId = find_user_by_email(assigneeEmail, org_id, conn)
             if not assigneeId:
-                print(f"  Warning: Assignee not found for task '{task.get('name')}' (assigneeEmail: {assigneeEmail})")
+                logger.warning(f"Assignee not found for task '{task.get('name')}' (assigneeEmail: {assigneeEmail})")
     
     # Get creator ID (if creator exists)
     creatorId = None
@@ -256,7 +257,7 @@ def map_task_to_issue(task, board_id, sprint_id, space_id, now, conn, org_id, ap
         if creatorEmail:
             creatorId = find_user_by_email(creatorEmail, org_id, conn)
             if not creatorId:
-                print(f"  Warning: Creator not found for task '{task.get('name')}' (creatorEmail: {creatorEmail})")
+                logger.warning(f"Creator not found for task '{task.get('name')}' (creatorEmail: {creatorEmail})")
 
     return {
         'created_at': created_at,
@@ -304,13 +305,13 @@ def map_pr_id_to_issue_id(task, conn, org_id):
     # Get the task ID (ClickUp task ID)
     task_id = task.get('id')
     if not task_id:
-        print(f"  Warning: Task has no ID, cannot create PR mapping")
+        logger.warning("Task has no ID, cannot create PR mapping")
         return None
     
     # Find the issue's primary key in the database
     issue_db_id = get_issue_id(str(task_id), conn)
     if not issue_db_id:
-        print(f"  Warning: Issue not found in database for task ID {task_id}")
+        logger.warning(f"Issue not found in database for task ID {task_id}")
         return None
     
     # Look for the "PR LINK" custom field in the task
@@ -329,7 +330,7 @@ def map_pr_id_to_issue_id(task, conn, org_id):
     # Get the PR's primary key from the database using the GitHub URL
     pr_db_id = get_pr_id(pr_link, conn)
     if not pr_db_id:
-        print(f"  Warning: PR not found in database for link {pr_link}")
+        logger.warning(f"PR not found in database for link {pr_link}")
         return None
     
     return {
