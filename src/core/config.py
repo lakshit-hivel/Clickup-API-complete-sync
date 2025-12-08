@@ -1,6 +1,13 @@
+"""
+Configuration module for the ClickUp Sync application.
+Loads environment variables for API and database connections.
+"""
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
+
+# ClickUp API Configuration
 TEAM_ID = os.getenv('CLICKUP_TEAM_ID')
 CLICKUP_API_BASE = 'https://api.clickup.com/api/v2'
 

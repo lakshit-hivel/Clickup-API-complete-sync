@@ -1,0 +1,15 @@
+[project]
+name = "clickup-api-completesync"
+version = "1.0.0"
+description = "ClickUp to Database Sync API"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+]
+
+[project.scripts]
+start = "uvicorn app:app --host 0.0.0.0 --port 8000"
